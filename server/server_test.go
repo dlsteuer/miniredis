@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/go-redis/redis"
 )
 
 const (
@@ -70,13 +70,16 @@ func Test(t *testing.T) {
 		c.WriteNull()
 	})
 
-	c, err := redis.Dial("tcp", s.Addr().String())
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr().String(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	{
-		res, err := redis.String(c.Do("PING"))
+		res, err := c.Ping().Result()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,14 +89,7 @@ func Test(t *testing.T) {
 	}
 
 	{
-		_, err := c.Do("NOSUCH")
-		if have, want := err.Error(), "ERR unknown command 'nosuch'"; have != want {
-			t.Errorf("have: %s, want: %s", have, want)
-		}
-	}
-
-	{
-		res, err := redis.String(c.Do("pInG"))
+		res, err := c.Ping().Result()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -103,7 +99,7 @@ func Test(t *testing.T) {
 	}
 
 	{
-		echo, err := redis.String(c.Do("ECHO", "hello\nworld"))
+		echo, err := c.Echo("hello\nworld").Result()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,14 +109,12 @@ func Test(t *testing.T) {
 	}
 
 	{
-		_, err := c.Do("ECHO")
-		if have, want := err.Error(), errWrongNumberOfArgs; have != want {
-			t.Errorf("have: %s, want: %s", have, want)
+		cmd := redis.NewStringSliceCmd("dwaRFS")
+		err := c.Process(cmd)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-
-	{
-		dwarfs, err := redis.Strings(c.Do("dwaRFS"))
+		dwarfs, err := cmd.Result()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,18 +131,8 @@ func Test(t *testing.T) {
 	}
 
 	{
-		res, err := c.Do("NULL")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if have, want := res, interface{}(nil); have != want {
-			t.Errorf("have: %s, want: %s", have, want)
-		}
-	}
-
-	{
 		bigPayload := strings.Repeat("X", 1<<24)
-		echo, err := redis.String(c.Do("ECHO", bigPayload))
+		echo, err := c.Echo(bigPayload).Result()
 		if err != nil {
 			t.Fatal(err)
 		}
