@@ -29,15 +29,6 @@
   version = "v6.11.0"
 
 [[projects]]
-  name = "github.com/gomodule/redigo"
-  packages = [
-    "internal",
-    "redis"
-  ]
-  revision = "9c11da706d9b7902c6da69c592f75637793fe121"
-  version = "v2.0.0"
-
-[[projects]]
   name = "github.com/pmezard/go-difflib"
   packages = ["difflib"]
   revision = "792786c7400a136282c1664665ae0a8db921c6c2"
@@ -45,10 +36,7 @@
 
 [[projects]]
   name = "github.com/stretchr/testify"
-  packages = [
-    "assert",
-    "require"
-  ]
+  packages = ["assert"]
   revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
   version = "v1.2.1"
 
@@ -66,6 +54,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "078bc9d653856b19aa81dc4605426ca87e8db2845c7057d25cc62259dd7e371b"
+  inputs-digest = "948d710318196c4612d7869546efba4487efd0f742b86ebcaf6baeecf4183388"
   solver-name = "gps-cdcl"
   solver-version = 1

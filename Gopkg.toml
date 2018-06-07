@@ -30,10 +30,6 @@
   name = "github.com/alicebob/gopher-json"
 
 [[constraint]]
-  name = "github.com/gomodule/redigo"
-  version = "2.0.0"
-
-[[constraint]]
   branch = "master"
   name = "github.com/yuin/gopher-lua"
 
