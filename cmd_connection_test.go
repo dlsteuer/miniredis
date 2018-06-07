@@ -3,30 +3,37 @@ package miniredis
 import (
 	"testing"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/go-redis/redis"
 )
 
 func TestAuth(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
-
-	_, err = c.Do("AUTH", "foo", "bar")
-	mustFail(t, err, "ERR wrong number of arguments for 'auth' command")
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.RequireAuth("nocomment")
-	_, err = c.Do("PING", "foo", "bar")
+	err = c.Ping().Err()
 	mustFail(t, err, "NOAUTH Authentication required.")
 
-	_, err = c.Do("AUTH", "wrongpasswd")
+	c = redis.NewClient(&redis.Options{
+		Network:  "tcp",
+		Addr:     s.Addr(),
+		Password: "wrongpasswd",
+	})
+	_, err = c.Ping().Result()
 	mustFail(t, err, "ERR invalid password")
 
-	_, err = c.Do("AUTH", "nocomment")
-	ok(t, err)
+	c = redis.NewClient(&redis.Options{
+		Network:  "tcp",
+		Addr:     s.Addr(),
+		Password: "nocomment",
+	})
 
-	_, err = c.Do("PING")
+	err = c.Ping().Err()
 	ok(t, err)
 }
 
@@ -34,10 +41,12 @@ func TestEcho(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
-	r, err := redis.String(c.Do("ECHO", "hello\nworld"))
+	r, err := c.Echo("hello\nworld").Result()
 	ok(t, err)
 	equals(t, "hello\nworld", r)
 }
@@ -46,16 +55,21 @@ func TestSelect(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+
+	err = c.Set("foo", "bar", 0).Err()
 	ok(t, err)
 
-	_, err = redis.String(c.Do("SET", "foo", "bar"))
-	ok(t, err)
+	c = redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+		DB:      5,
+	})
 
-	_, err = redis.String(c.Do("SELECT", "5"))
-	ok(t, err)
-
-	_, err = redis.String(c.Do("SET", "foo", "baz"))
+	err = c.Set("foo", "baz", 0).Err()
 	ok(t, err)
 
 	// Direct access.
@@ -68,9 +82,11 @@ func TestSelect(t *testing.T) {
 	equals(t, "baz", got)
 
 	// Another connection should have its own idea of the db:
-	c2, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
-	v, err := redis.String(c2.Do("GET", "foo"))
+	c2 := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+	v, err := c2.Get("foo").Result()
 	ok(t, err)
 	equals(t, "bar", v)
 }
@@ -79,14 +95,18 @@ func TestQuit(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
-	v, err := redis.String(c.Do("QUIT"))
+	cmd := redis.NewStringCmd("QUIT")
+	err = c.Process(cmd)
 	ok(t, err)
-	equals(t, "OK", v)
+	ok(t, cmd.Err())
+	equals(t, "OK", cmd.Val())
 
-	v, err = redis.String(c.Do("PING"))
-	assert(t, err != nil, "QUIT closed the client")
-	equals(t, "", v)
+	res := c.Ping()
+	assert(t, res.Err() != nil, "QUIT closed the client")
+	equals(t, "", res.Val())
 }

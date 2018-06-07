@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/go-redis/redis"
 )
 
 // Test starting/stopping a server
@@ -13,16 +13,18 @@ func TestServer(t *testing.T) {
 	ok(t, err)
 	defer s.Close()
 
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
-	_, err = c.Do("PING")
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+	_, err = c.Ping().Result()
 	ok(t, err)
 
 	// A single client
 	equals(t, 1, s.CurrentConnectionCount())
 	equals(t, 1, s.TotalConnectionCount())
 	equals(t, 1, s.CommandCount())
-	_, err = c.Do("PING")
+	_, err = c.Ping().Result()
 	ok(t, err)
 	equals(t, 2, s.CommandCount())
 }
@@ -58,12 +60,14 @@ func TestRestart(t *testing.T) {
 		t.Fatalf("have: %s, want: %s", have, want)
 	}
 
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
-	_, err = c.Do("PING")
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+	_, err = c.Ping().Result()
 	ok(t, err)
 
-	red, err := redis.String(c.Do("GET", "color"))
+	red, err := c.Get("color").Result()
 	ok(t, err)
 	if have, want := red, "red"; have != want {
 		t.Errorf("have: %s, want: %s", have, want)
@@ -77,9 +81,11 @@ func TestAddr(t *testing.T) {
 	ok(t, err)
 	defer m.Close()
 
-	c, err := redis.Dial("tcp", "127.0.0.1:7887")
-	ok(t, err)
-	_, err = c.Do("PING")
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    "127.0.0.1:7887",
+	})
+	_, err = c.Ping().Result()
 	ok(t, err)
 }
 
@@ -219,13 +225,10 @@ func TestRedigo(t *testing.T) {
 	r := s.redigo()
 	defer r.Close()
 
-	_, err = r.Do("SELECT", 2)
+	_, err = r.Set("foo", "bar", 0).Result()
 	ok(t, err)
 
-	_, err = r.Do("SET", "foo", "bar")
-	ok(t, err)
-
-	v, err := redis.String(r.Do("GET", "foo"))
+	v, err := r.Get("foo").Result()
 	ok(t, err)
 	equals(t, "bar", v)
 }

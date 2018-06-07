@@ -4,7 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/go-redis/redis"
 )
 
 // Test SADD / SMEMBERS.
@@ -12,11 +12,17 @@ func TestSadd(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+
+	var b int64
+	var m []string
+	var str string
 
 	{
-		b, err := redis.Int(c.Do("SADD", "s", "aap", "noot", "mies"))
+		b, err = c.SAdd("s", "aap", "noot", "mies").Result()
 		ok(t, err)
 		equals(t, 3, b) // New elements.
 
@@ -24,26 +30,26 @@ func TestSadd(t *testing.T) {
 		ok(t, err)
 		equals(t, []string{"aap", "mies", "noot"}, members)
 
-		m, err := redis.Strings(c.Do("SMEMBERS", "s"))
+		m, err = c.SMembers("s").Result()
 		ok(t, err)
 		equals(t, []string{"aap", "mies", "noot"}, m)
 	}
 
 	{
-		b, err := redis.String(c.Do("TYPE", "s"))
+		str, err = c.Type("s").Result()
 		ok(t, err)
-		equals(t, "set", b)
+		equals(t, "set", str)
 	}
 
 	// SMEMBERS on an nonexisting key
 	{
-		m, err := redis.Strings(c.Do("SMEMBERS", "nosuch"))
+		m, err = c.SMembers("nosuch").Result()
 		ok(t, err)
 		equals(t, []string{}, m)
 	}
 
 	{
-		b, err := redis.Int(c.Do("SADD", "s", "new", "noot", "mies"))
+		b, err = c.SAdd("s", "new", "noot", "mies").Result()
 		ok(t, err)
 		equals(t, 1, b) // Only one new field.
 
@@ -65,21 +71,12 @@ func TestSadd(t *testing.T) {
 
 	// Wrong type of key
 	{
-		_, err := redis.String(c.Do("SET", "str", "value"))
+		err = c.Set("str", "value", 0).Err()
 		ok(t, err)
-		_, err = redis.Int(c.Do("SADD", "str", "hi"))
+		err = c.SAdd("str", "hi").Err()
 		assert(t, err != nil, "SADD error")
-		_, err = redis.Int(c.Do("SMEMBERS", "str"))
+		err = c.SMembers("str").Err()
 		assert(t, err != nil, "MEMBERS error")
-		// Wrong argument counts
-		_, err = redis.String(c.Do("SADD"))
-		assert(t, err != nil, "SADD error")
-		_, err = redis.String(c.Do("SADD", "set"))
-		assert(t, err != nil, "SADD error")
-		_, err = redis.String(c.Do("SMEMBERS"))
-		assert(t, err != nil, "SMEMBERS error")
-		_, err = redis.String(c.Do("SMEMBERS", "set", "spurious"))
-		assert(t, err != nil, "SMEMBERS error")
 	}
 
 }
@@ -89,26 +86,30 @@ func TestSismember(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s", "aap", "noot", "mies")
 
-	{
-		b, err := redis.Int(c.Do("SISMEMBER", "s", "aap"))
-		ok(t, err)
-		equals(t, 1, b)
+	var b bool
 
-		b, err = redis.Int(c.Do("SISMEMBER", "s", "nosuch"))
+	{
+		b, err = c.SIsMember("s", "aap").Result()
 		ok(t, err)
-		equals(t, 0, b)
+		equals(t, true, b)
+
+		b, err = c.SIsMember("s", "nosuch").Result()
+		ok(t, err)
+		equals(t, false, b)
 	}
 
 	// a nonexisting key
 	{
-		b, err := redis.Int(c.Do("SISMEMBER", "nosuch", "nosuch"))
+		b, err = c.SIsMember("nosuch", "nosuch").Result()
 		ok(t, err)
-		equals(t, 0, b)
+		equals(t, false, b)
 	}
 
 	// Direct usage
@@ -120,16 +121,9 @@ func TestSismember(t *testing.T) {
 
 	// Wrong type of key
 	{
-		_, err := redis.String(c.Do("SET", "str", "value"))
+		err = c.Set("str", "value", 0).Err()
 		ok(t, err)
-		_, err = redis.Int(c.Do("SISMEMBER", "str"))
-		assert(t, err != nil, "SISMEMBER error")
-		// Wrong argument counts
-		_, err = redis.String(c.Do("SISMEMBER"))
-		assert(t, err != nil, "SISMEMBER error")
-		_, err = redis.String(c.Do("SISMEMBER", "set"))
-		assert(t, err != nil, "SISMEMBER error")
-		_, err = redis.String(c.Do("SISMEMBER", "set", "spurious", "args"))
+		err = c.SIsMember("str", "thing").Err()
 		assert(t, err != nil, "SISMEMBER error")
 	}
 
@@ -140,13 +134,17 @@ func TestSrem(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s", "aap", "noot", "mies", "vuur")
 
+	var b int64
+
 	{
-		b, err := redis.Int(c.Do("SREM", "s", "aap", "noot"))
+		b, err = c.SRem("s", "aap", "noot").Result()
 		ok(t, err)
 		equals(t, 2, b)
 
@@ -157,14 +155,14 @@ func TestSrem(t *testing.T) {
 
 	// a nonexisting field
 	{
-		b, err := redis.Int(c.Do("SREM", "s", "nosuch"))
+		b, err = c.SRem("s", "nosuch").Result()
 		ok(t, err)
 		equals(t, 0, b)
 	}
 
 	// a nonexisting key
 	{
-		b, err := redis.Int(c.Do("SREM", "nosuch", "nosuch"))
+		b, err = c.SRem("nosuch", "nosuch").Result()
 		ok(t, err)
 		equals(t, 0, b)
 	}
@@ -182,16 +180,9 @@ func TestSrem(t *testing.T) {
 
 	// Wrong type of key
 	{
-		_, err := redis.String(c.Do("SET", "str", "value"))
+		err = c.Set("str", "value", 0).Err()
 		ok(t, err)
-		_, err = redis.Int(c.Do("SREM", "str", "value"))
-		assert(t, err != nil, "SREM error")
-		// Wrong argument counts
-		_, err = redis.String(c.Do("SREM"))
-		assert(t, err != nil, "SREM error")
-		_, err = redis.String(c.Do("SREM", "set"))
-		assert(t, err != nil, "SREM error")
-		_, err = redis.String(c.Do("SREM", "set", "spurious", "args"))
+		err = c.SRem("str", "value").Err()
 		assert(t, err != nil, "SREM error")
 	}
 }
@@ -201,15 +192,18 @@ func TestSmove(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s", "aap", "noot")
+	var b bool
 
 	{
-		b, err := redis.Int(c.Do("SMOVE", "s", "s2", "aap"))
+		b, err = c.SMove("s", "s2", "aap").Result()
 		ok(t, err)
-		equals(t, 1, b)
+		equals(t, true, b)
 
 		m, err := s.IsMember("s", "aap")
 		ok(t, err)
@@ -221,9 +215,9 @@ func TestSmove(t *testing.T) {
 
 	// Move away the last member
 	{
-		b, err := redis.Int(c.Do("SMOVE", "s", "s2", "noot"))
+		b, err = c.SMove("s", "s2", "noot").Result()
 		ok(t, err)
-		equals(t, 1, b)
+		equals(t, true, b)
 
 		equals(t, false, s.Exists("s"))
 
@@ -234,34 +228,25 @@ func TestSmove(t *testing.T) {
 
 	// a nonexisting member
 	{
-		b, err := redis.Int(c.Do("SMOVE", "s", "s2", "nosuch"))
+		b, err = c.SMove("s", "s2", "nosuch").Result()
 		ok(t, err)
-		equals(t, 0, b)
+		equals(t, false, b)
 	}
 
 	// a nonexisting key
 	{
-		b, err := redis.Int(c.Do("SMOVE", "nosuch", "nosuch2", "nosuch"))
+		b, err = c.SMove("nosuch", "nosuch2", "nosuch").Result()
 		ok(t, err)
-		equals(t, 0, b)
+		equals(t, false, b)
 	}
 
 	// Wrong type of key
 	{
-		_, err := redis.String(c.Do("SET", "str", "value"))
+		err = c.Set("str", "value", 0).Err()
 		ok(t, err)
-		_, err = redis.Int(c.Do("SMOVE", "str", "dst", "value"))
+		err = c.SMove("str", "dst", "value").Err()
 		assert(t, err != nil, "SMOVE error")
-		_, err = redis.Int(c.Do("SMOVE", "s2", "str", "value"))
-		assert(t, err != nil, "SMOVE error")
-		// Wrong argument counts
-		_, err = redis.String(c.Do("SMOVE"))
-		assert(t, err != nil, "SMOVE error")
-		_, err = redis.String(c.Do("SMOVE", "set"))
-		assert(t, err != nil, "SMOVE error")
-		_, err = redis.String(c.Do("SMOVE", "set", "set2"))
-		assert(t, err != nil, "SMOVE error")
-		_, err = redis.String(c.Do("SMOVE", "set", "set2", "spurious", "args"))
+		err = c.SMove("s2", "str", "value").Err()
 		assert(t, err != nil, "SMOVE error")
 	}
 }
@@ -271,17 +256,21 @@ func TestSpop(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s", "aap", "noot")
 
+	var el string
+
 	{
-		el, err := redis.String(c.Do("SPOP", "s"))
+		el, err = c.SPop("s").Result()
 		ok(t, err)
 		assert(t, el == "aap" || el == "noot", "spop got something")
 
-		el, err = redis.String(c.Do("SPOP", "s"))
+		el, err = c.SPop("s").Result()
 		ok(t, err)
 		assert(t, el == "aap" || el == "noot", "spop got something")
 
@@ -290,9 +279,8 @@ func TestSpop(t *testing.T) {
 
 	// a nonexisting key
 	{
-		b, err := c.Do("SPOP", "nosuch")
-		ok(t, err)
-		equals(t, nil, b)
+		_, err = c.SPop("nosuch").Result()
+		nilCheck(t, err)
 	}
 
 	// various errors
@@ -300,24 +288,8 @@ func TestSpop(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SMOVE"))
-		assert(t, err != nil, "SMOVE error")
-		_, err = redis.String(c.Do("SMOVE", "chk", "set2"))
-		assert(t, err != nil, "SMOVE error")
-
-		_, err = c.Do("SPOP", "str")
+		err = c.SPop("str").Err()
 		assert(t, err != nil, "SPOP error")
-	}
-
-	// count argument
-	{
-		s.SetAdd("s", "aap", "noot", "mies", "vuur")
-		el, err := redis.Strings(c.Do("SPOP", "s", 2))
-		ok(t, err)
-		assert(t, len(el) == 2, "SPOP s 2")
-		members, err := s.Members("s")
-		ok(t, err)
-		assert(t, len(members) == 2, "SPOP s 2")
 	}
 }
 
@@ -326,37 +298,41 @@ func TestSrandmember(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s", "aap", "noot", "mies")
 
+	var el string
+	var els []string
+
 	// No count
 	{
-		el, err := redis.String(c.Do("SRANDMEMBER", "s"))
+		el, err = c.SRandMember("s").Result()
 		ok(t, err)
 		assert(t, el == "aap" || el == "noot" || el == "mies", "srandmember got something")
 	}
 
 	// Positive count
 	{
-		els, err := redis.Strings(c.Do("SRANDMEMBER", "s", 2))
+		els, err = c.SRandMemberN("s", 2).Result()
 		ok(t, err)
 		equals(t, 2, len(els))
 	}
 
 	// Negative count
 	{
-		els, err := redis.Strings(c.Do("SRANDMEMBER", "s", -2))
+		els, err = c.SRandMemberN("s", -2).Result()
 		ok(t, err)
 		equals(t, 2, len(els))
 	}
 
 	// a nonexisting key
 	{
-		b, err := c.Do("SRANDMEMBER", "nosuch")
-		ok(t, err)
-		equals(t, nil, b)
+		_, err = c.SRandMember("nosuch").Result()
+		nilCheck(t, err)
 	}
 
 	// Various errors
@@ -364,14 +340,7 @@ func TestSrandmember(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SRANDMEMBER"))
-		assert(t, err != nil, "SRANDMEMBER error")
-		_, err = redis.String(c.Do("SRANDMEMBER", "chk", "noint"))
-		assert(t, err != nil, "SRANDMEMBER error")
-		_, err = redis.String(c.Do("SRANDMEMBER", "chk", 1, "toomanu"))
-		assert(t, err != nil, "SRANDMEMBER error")
-
-		_, err = c.Do("SRANDMEMBER", "str")
+		err = c.SRandMember("str").Err()
 		assert(t, err != nil, "SRANDMEMBER error")
 	}
 }
@@ -381,23 +350,27 @@ func TestSdiff(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s1", "aap", "noot", "mies")
 	s.SetAdd("s2", "noot", "mies", "vuur")
 	s.SetAdd("s3", "aap", "mies", "wim")
 
+	var els []string
+
 	// Simple case
 	{
-		els, err := redis.Strings(c.Do("SDIFF", "s1", "s2"))
+		els, err = c.SDiff("s1", "s2").Result()
 		ok(t, err)
 		equals(t, []string{"aap"}, els)
 	}
 
 	// No other set
 	{
-		els, err := redis.Strings(c.Do("SDIFF", "s1"))
+		els, err = c.SDiff("s1").Result()
 		ok(t, err)
 		sort.Strings(els)
 		equals(t, []string{"aap", "mies", "noot"}, els)
@@ -405,14 +378,14 @@ func TestSdiff(t *testing.T) {
 
 	// 3 sets
 	{
-		els, err := redis.Strings(c.Do("SDIFF", "s1", "s2", "s3"))
+		els, err = c.SDiff("s1", "s2", "s3").Result()
 		ok(t, err)
 		equals(t, []string{}, els)
 	}
 
 	// A nonexisting key
 	{
-		els, err := redis.Strings(c.Do("SDIFF", "s9"))
+		els, err = c.SDiff("s9").Result()
 		ok(t, err)
 		equals(t, []string{}, els)
 	}
@@ -422,11 +395,11 @@ func TestSdiff(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SDIFF"))
+		err = c.SDiff().Err()
 		assert(t, err != nil, "SDIFF error")
-		_, err = redis.String(c.Do("SDIFF", "str"))
+		err = c.SDiff("str").Err()
 		assert(t, err != nil, "SDIFF error")
-		_, err = redis.String(c.Do("SDIFF", "chk", "str"))
+		err = c.SDiff("chk", "str").Err()
 		assert(t, err != nil, "SDIFF error")
 	}
 }
@@ -436,16 +409,20 @@ func TestSdiffstore(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s1", "aap", "noot", "mies")
 	s.SetAdd("s2", "noot", "mies", "vuur")
 	s.SetAdd("s3", "aap", "mies", "wim")
 
+	var i int64
+
 	// Simple case
 	{
-		i, err := redis.Int(c.Do("SDIFFSTORE", "res", "s1", "s3"))
+		i, err = c.SDiffStore("res", "s1", "s3").Result()
 		ok(t, err)
 		equals(t, 1, i)
 		s.CheckSet(t, "res", "noot")
@@ -456,11 +433,9 @@ func TestSdiffstore(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SDIFFSTORE"))
+		err = c.SDiffStore("t").Err()
 		assert(t, err != nil, "SDIFFSTORE error")
-		_, err = redis.String(c.Do("SDIFFSTORE", "t"))
-		assert(t, err != nil, "SDIFFSTORE error")
-		_, err = redis.String(c.Do("SDIFFSTORE", "t", "str"))
+		err = c.SDiffStore("t", "str").Err()
 		assert(t, err != nil, "SDIFFSTORE error")
 	}
 }
@@ -470,16 +445,20 @@ func TestSinter(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s1", "aap", "noot", "mies")
 	s.SetAdd("s2", "noot", "mies", "vuur")
 	s.SetAdd("s3", "aap", "mies", "wim")
 
+	var els []string
+
 	// Simple case
 	{
-		els, err := redis.Strings(c.Do("SINTER", "s1", "s2"))
+		els, err = c.SInter("s1", "s2").Result()
 		ok(t, err)
 		sort.Strings(els)
 		equals(t, []string{"mies", "noot"}, els)
@@ -487,7 +466,7 @@ func TestSinter(t *testing.T) {
 
 	// No other set
 	{
-		els, err := redis.Strings(c.Do("SINTER", "s1"))
+		els, err = c.SInter("s1").Result()
 		ok(t, err)
 		sort.Strings(els)
 		equals(t, []string{"aap", "mies", "noot"}, els)
@@ -495,14 +474,14 @@ func TestSinter(t *testing.T) {
 
 	// 3 sets
 	{
-		els, err := redis.Strings(c.Do("SINTER", "s1", "s2", "s3"))
+		els, err = c.SInter("s1", "s2", "s3").Result()
 		ok(t, err)
 		equals(t, []string{"mies"}, els)
 	}
 
 	// A nonexisting key
 	{
-		els, err := redis.Strings(c.Do("SINTER", "s9"))
+		els, err = c.SInter("s9").Result()
 		ok(t, err)
 		equals(t, []string{}, els)
 	}
@@ -512,11 +491,9 @@ func TestSinter(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SINTER"))
+		err = c.SInter().Err()
 		assert(t, err != nil, "SINTER error")
-		_, err = redis.String(c.Do("SINTER", "str"))
-		assert(t, err != nil, "SINTER error")
-		_, err = redis.String(c.Do("SINTER", "chk", "str"))
+		err = c.SInter("str").Err()
 		assert(t, err != nil, "SINTER error")
 	}
 }
@@ -526,16 +503,20 @@ func TestSinterstore(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s1", "aap", "noot", "mies")
 	s.SetAdd("s2", "noot", "mies", "vuur")
 	s.SetAdd("s3", "aap", "mies", "wim")
 
+	var i int64
+
 	// Simple case
 	{
-		i, err := redis.Int(c.Do("SINTERSTORE", "res", "s1", "s3"))
+		i, err = c.SInterStore("res", "s1", "s3").Result()
 		ok(t, err)
 		equals(t, 2, i)
 		s.CheckSet(t, "res", "aap", "mies")
@@ -546,11 +527,9 @@ func TestSinterstore(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SINTERSTORE"))
+		err = c.SInterStore("t").Err()
 		assert(t, err != nil, "SINTERSTORE error")
-		_, err = redis.String(c.Do("SINTERSTORE", "t"))
-		assert(t, err != nil, "SINTERSTORE error")
-		_, err = redis.String(c.Do("SINTERSTORE", "t", "str"))
+		err = c.SInterStore("t", "str").Err()
 		assert(t, err != nil, "SINTERSTORE error")
 	}
 }
@@ -560,16 +539,20 @@ func TestSunion(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s1", "aap", "noot", "mies")
 	s.SetAdd("s2", "noot", "mies", "vuur")
 	s.SetAdd("s3", "aap", "mies", "wim")
 
+	var els []string
+
 	// Simple case
 	{
-		els, err := redis.Strings(c.Do("SUNION", "s1", "s2"))
+		els, err = c.SUnion("s1", "s2").Result()
 		ok(t, err)
 		sort.Strings(els)
 		equals(t, []string{"aap", "mies", "noot", "vuur"}, els)
@@ -577,7 +560,7 @@ func TestSunion(t *testing.T) {
 
 	// No other set
 	{
-		els, err := redis.Strings(c.Do("SUNION", "s1"))
+		els, err = c.SUnion("s1").Result()
 		ok(t, err)
 		sort.Strings(els)
 		equals(t, []string{"aap", "mies", "noot"}, els)
@@ -585,7 +568,7 @@ func TestSunion(t *testing.T) {
 
 	// 3 sets
 	{
-		els, err := redis.Strings(c.Do("SUNION", "s1", "s2", "s3"))
+		els, err = c.SUnion("s1", "s2", "s3").Result()
 		ok(t, err)
 		sort.Strings(els)
 		equals(t, []string{"aap", "mies", "noot", "vuur", "wim"}, els)
@@ -593,7 +576,7 @@ func TestSunion(t *testing.T) {
 
 	// A nonexisting key
 	{
-		els, err := redis.Strings(c.Do("SUNION", "s9"))
+		els, err = c.SUnion("s9").Result()
 		ok(t, err)
 		equals(t, []string{}, els)
 	}
@@ -603,11 +586,11 @@ func TestSunion(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SUNION"))
+		err = c.SUnion().Err()
 		assert(t, err != nil, "SUNION error")
-		_, err = redis.String(c.Do("SUNION", "str"))
+		err = c.SUnion("str").Err()
 		assert(t, err != nil, "SUNION error")
-		_, err = redis.String(c.Do("SUNION", "chk", "str"))
+		err = c.SUnion("chk", "str").Err()
 		assert(t, err != nil, "SUNION error")
 	}
 }
@@ -617,16 +600,20 @@ func TestSunionstore(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.SetAdd("s1", "aap", "noot", "mies")
 	s.SetAdd("s2", "noot", "mies", "vuur")
 	s.SetAdd("s3", "aap", "mies", "wim")
 
+	var i int64
+
 	// Simple case
 	{
-		i, err := redis.Int(c.Do("SUNIONSTORE", "res", "s1", "s3"))
+		i, err = c.SUnionStore("res", "s1", "s3").Result()
 		ok(t, err)
 		equals(t, 4, i)
 		s.CheckSet(t, "res", "aap", "mies", "noot", "wim")
@@ -637,11 +624,9 @@ func TestSunionstore(t *testing.T) {
 		s.SetAdd("chk", "aap", "noot")
 		s.Set("str", "value")
 
-		_, err = redis.String(c.Do("SUNIONSTORE"))
+		err = c.SUnionStore("t").Err()
 		assert(t, err != nil, "SUNIONSTORE error")
-		_, err = redis.String(c.Do("SUNIONSTORE", "t"))
-		assert(t, err != nil, "SUNIONSTORE error")
-		_, err = redis.String(c.Do("SUNIONSTORE", "t", "str"))
+		err = c.SUnionStore("t", "str").Err()
 		assert(t, err != nil, "SUNIONSTORE error")
 	}
 }
@@ -650,86 +635,48 @@ func TestSscan(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	// We cheat with sscan. It always returns everything.
 
 	s.SetAdd("set", "value1", "value2")
 
+	var keys []string
+	var cur uint64
+
 	// No problem
 	{
-		res, err := redis.Values(c.Do("SSCAN", "set", 0))
+		keys, cur, err = c.SScan("set", 0, "", 0).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
+		equals(t, 0, cur)
 		equals(t, []string{"value1", "value2"}, keys)
 	}
 
 	// Invalid cursor
 	{
-		res, err := redis.Values(c.Do("SSCAN", "set", 42))
+		keys, _, err = c.SScan("set", 42, "", 0).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
-		equals(t, []string(nil), keys)
+		equals(t, 0, cur)
+		equals(t, []string{}, keys)
 	}
 
 	// COUNT (ignored)
 	{
-		res, err := redis.Values(c.Do("SSCAN", "set", 0, "COUNT", 200))
+		keys, _, err = c.SScan("set", 0, "", 200).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
+		equals(t, 0, cur)
 		equals(t, []string{"value1", "value2"}, keys)
 	}
 
 	// MATCH
 	{
 		s.SetAdd("set", "aap", "noot", "mies")
-		res, err := redis.Values(c.Do("SSCAN", "set", 0, "MATCH", "mi*"))
+		keys, cur, err = c.SScan("set", 0, "mi*", 0).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
+		equals(t, 0, cur)
 		equals(t, []string{"mies"}, keys)
-	}
-
-	// Wrong usage
-	{
-		_, err := redis.Int(c.Do("SSCAN"))
-		assert(t, err != nil, "do SSCAN error")
-		_, err = redis.Int(c.Do("SSCAN", "set"))
-		assert(t, err != nil, "do SSCAN error")
-		_, err = redis.Int(c.Do("SSCAN", "set", "noint"))
-		assert(t, err != nil, "do SSCAN error")
-		_, err = redis.Int(c.Do("SSCAN", "set", 1, "MATCH"))
-		assert(t, err != nil, "do SSCAN error")
-		_, err = redis.Int(c.Do("SSCAN", "set", 1, "COUNT"))
-		assert(t, err != nil, "do SSCAN error")
-		_, err = redis.Int(c.Do("SSCAN", "set", 1, "COUNT", "noint"))
-		assert(t, err != nil, "do SSCAN error")
-		s.Set("str", "value")
-		_, err = redis.Int(c.Do("SSCAN", "str", 1))
-		assert(t, err != nil, "do SSCAN error")
 	}
 }

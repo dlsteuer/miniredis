@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/go-redis/redis"
 )
 
 // Test Hash.
@@ -13,61 +13,58 @@ func TestHash(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+
+	var b bool
+	var v string
 
 	{
-		b, err := redis.Int(c.Do("HSET", "aap", "noot", "mies"))
+		b, err = c.HSet("aap", "noot", "mies").Result()
 		ok(t, err)
-		equals(t, 1, b) // New field.
+		equals(t, true, b) // New field.
 	}
 
 	{
-		v, err := redis.String(c.Do("HGET", "aap", "noot"))
+		v, err = c.HGet("aap", "noot").Result()
 		ok(t, err)
 		equals(t, "mies", v)
 		equals(t, "mies", s.HGet("aap", "noot"))
 	}
 
 	{
-		b, err := redis.Int(c.Do("HSET", "aap", "noot", "mies"))
+		b, err = c.HSet("aap", "noot", "mies").Result()
 		ok(t, err)
-		equals(t, 0, b) // Existing field.
+		equals(t, false, b) // Existing field.
 	}
 
 	// Wrong type of key
 	{
-		_, err := redis.String(c.Do("SET", "foo", "bar"))
+		err = c.Set("foo", "bar", 0).Err()
 		ok(t, err)
-		_, err = redis.Int(c.Do("HSET", "foo", "noot", "mies"))
+		err = c.HSet("foo", "noot", "mies").Err()
 		assert(t, err != nil, "HSET error")
 	}
 
 	// hash exists, key doesn't.
 	{
-		b, err := c.Do("HGET", "aap", "nosuch")
-		ok(t, err)
-		equals(t, nil, b)
+		v, err = c.HGet("app", "nosuch").Result()
+		nilCheck(t, err)
 	}
 
 	// hash doesn't exists.
 	{
-		b, err := c.Do("HGET", "nosuch", "nosuch")
-		ok(t, err)
-		equals(t, nil, b)
+		v, err = c.HGet("nosuch", "nosuch").Result()
+		assert(t, err != nil, "")
 		equals(t, "", s.HGet("nosuch", "nosuch"))
-	}
-
-	// HGET on wrong type
-	{
-		_, err := redis.Int(c.Do("HGET", "aap"))
-		assert(t, err != nil, "HGET error")
 	}
 
 	// Direct HSet()
 	{
 		s.HSet("wim", "zus", "jet")
-		v, err := redis.String(c.Do("HGET", "wim", "zus"))
+		v, err = c.HGet("wim", "zus").Result()
 		ok(t, err)
 		equals(t, "jet", v)
 	}
@@ -77,26 +74,28 @@ func TestHashSetNX(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	// New Hash
-	v, err := redis.Int(c.Do("HSETNX", "wim", "zus", "jet"))
+	v, err := c.HSetNX("wim", "zus", "jet").Result()
 	ok(t, err)
-	equals(t, 1, v)
+	equals(t, true, v)
 
-	v, err = redis.Int(c.Do("HSETNX", "wim", "zus", "jet"))
+	v, err = c.HSetNX("wim", "zus", "jet").Result()
 	ok(t, err)
-	equals(t, 0, v)
+	equals(t, false, v)
 
 	// Just a new key
-	v, err = redis.Int(c.Do("HSETNX", "wim", "aap", "noot"))
+	v, err = c.HSetNX("wim", "aap", "noot").Result()
 	ok(t, err)
-	equals(t, 1, v)
+	equals(t, true, v)
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HSETNX", "foo", "nosuch", "nosuch"))
+	err = c.HSetNX("foo", "nosuch", "nosuch").Err()
 	assert(t, err != nil, "no HSETNX error")
 }
 
@@ -104,12 +103,19 @@ func TestHashMSet(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+
+	var v string
 
 	// New Hash
 	{
-		v, err := redis.String(c.Do("HMSET", "hash", "wim", "zus", "jet", "vuur"))
+		v, err = c.HMSet("hash", map[string]interface{} {
+			"wim": "zus",
+			"jet": "vuur",
+		}).Result()
 		ok(t, err)
 		equals(t, "OK", v)
 
@@ -120,7 +126,9 @@ func TestHashMSet(t *testing.T) {
 	// Doesn't touch ttl.
 	{
 		s.SetTTL("hash", time.Second*999)
-		v, err := redis.String(c.Do("HMSET", "hash", "gijs", "lam"))
+		v, err = c.HMSet("hash", map[string]interface{} {
+			"gijs": "lam",
+		}).Result()
 		ok(t, err)
 		equals(t, "OK", v)
 		equals(t, time.Second*999, s.TTL("hash"))
@@ -129,14 +137,9 @@ func TestHashMSet(t *testing.T) {
 	{
 		// Wrong key type
 		s.Set("str", "value")
-		_, err = redis.Int(c.Do("HMSET", "str", "key", "value"))
-		assert(t, err != nil, "no HSETerror")
-		// Usage error
-		_, err = redis.Int(c.Do("HMSET", "str"))
-		assert(t, err != nil, "no HSETerror")
-		_, err = redis.Int(c.Do("HMSET", "str", "odd"))
-		assert(t, err != nil, "no HSETerror")
-		_, err = redis.Int(c.Do("HMSET", "str", "key", "value", "odd"))
+		err = c.HMSet("str", map[string]interface{} {
+			"key": "value",
+		}).Err()
 		assert(t, err != nil, "no HSETerror")
 	}
 }
@@ -145,35 +148,37 @@ func TestHashDel(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.HSet("wim", "zus", "jet")
 	s.HSet("wim", "teun", "vuur")
 	s.HSet("wim", "gijs", "lam")
 	s.HSet("wim", "kees", "bok")
-	v, err := redis.Int(c.Do("HDEL", "wim", "zus", "gijs"))
+	v, err := c.HDel("wim", "zus", "gijs").Result()
 	ok(t, err)
 	equals(t, 2, v)
 
-	v, err = redis.Int(c.Do("HDEL", "wim", "nosuch"))
+	v, err = c.HDel("wim", "nosuch").Result()
 	ok(t, err)
 	equals(t, 0, v)
 
 	// Deleting all makes the key disappear
-	v, err = redis.Int(c.Do("HDEL", "wim", "teun", "kees"))
+	v, err = c.HDel("wim", "teun", "kees").Result()
 	ok(t, err)
 	equals(t, 2, v)
 	assert(t, !s.Exists("wim"), "no more wim key")
 
 	// Key doesn't exists.
-	v, err = redis.Int(c.Do("HDEL", "nosuch", "nosuch"))
+	v, err = c.HDel("nosuch", "nosuch").Result()
 	ok(t, err)
 	equals(t, 0, v)
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HDEL", "foo", "nosuch"))
+	err = c.HDel("foo", "nosuch").Err()
 	assert(t, err != nil, "no HDEL error")
 
 	// Direct HDel()
@@ -186,26 +191,28 @@ func TestHashExists(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.HSet("wim", "zus", "jet")
 	s.HSet("wim", "teun", "vuur")
-	v, err := redis.Int(c.Do("HEXISTS", "wim", "zus"))
+	v, err := c.HExists("wim", "zus").Result()
 	ok(t, err)
-	equals(t, 1, v)
+	equals(t, true, v)
 
-	v, err = redis.Int(c.Do("HEXISTS", "wim", "nosuch"))
+	v, err = c.HExists("wim", "nosuch").Result()
 	ok(t, err)
-	equals(t, 0, v)
+	equals(t, false, v)
 
-	v, err = redis.Int(c.Do("HEXISTS", "nosuch", "nosuch"))
+	v, err = c.HExists("nosuch", "nosuch").Result()
 	ok(t, err)
-	equals(t, 0, v)
+	equals(t, false, v)
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HEXISTS", "foo", "nosuch"))
+	err = c.HExists("foo", "nosuch").Err()
 	assert(t, err != nil, "no HDEL error")
 }
 
@@ -213,35 +220,31 @@ func TestHashGetall(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.HSet("wim", "zus", "jet")
 	s.HSet("wim", "teun", "vuur")
 	s.HSet("wim", "gijs", "lam")
 	s.HSet("wim", "kees", "bok")
-	v, err := redis.Strings(c.Do("HGETALL", "wim"))
+	v, err := c.HGetAll("wim").Result()
 	ok(t, err)
-	equals(t, 8, len(v))
-	d := map[string]string{}
-	for len(v) > 0 {
-		d[v[0]] = v[1]
-		v = v[2:]
-	}
 	equals(t, map[string]string{
 		"zus":  "jet",
 		"teun": "vuur",
 		"gijs": "lam",
 		"kees": "bok",
-	}, d)
+	}, v)
 
-	v, err = redis.Strings(c.Do("HGETALL", "nosuch"))
+	v, err = c.HGetAll("nosuch").Result()
 	ok(t, err)
 	equals(t, 0, len(v))
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HGETALL", "foo"))
+	err = c.HGetAll("foo").Err()
 	assert(t, err != nil, "no HGETALL error")
 }
 
@@ -249,15 +252,20 @@ func TestHashKeys(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.HSet("wim", "zus", "jet")
 	s.HSet("wim", "teun", "vuur")
 	s.HSet("wim", "gijs", "lam")
 	s.HSet("wim", "kees", "bok")
+
+	var v []string
+
 	{
-		v, err := redis.Strings(c.Do("HKEYS", "wim"))
+		v, err = c.HKeys("wim").Result()
 		ok(t, err)
 		equals(t, 4, len(v))
 		sort.Strings(v)
@@ -284,13 +292,13 @@ func TestHashKeys(t *testing.T) {
 		equals(t, err, ErrKeyNotFound)
 	}
 
-	v, err := redis.Strings(c.Do("HKEYS", "nosuch"))
+	v, err = c.HKeys("nosuch").Result()
 	ok(t, err)
 	equals(t, 0, len(v))
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HKEYS", "foo"))
+	err = c.HKeys("foo").Err()
 	assert(t, err != nil, "no HKEYS error")
 }
 
@@ -298,14 +306,16 @@ func TestHashValues(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.HSet("wim", "zus", "jet")
 	s.HSet("wim", "teun", "vuur")
 	s.HSet("wim", "gijs", "lam")
 	s.HSet("wim", "kees", "bok")
-	v, err := redis.Strings(c.Do("HVALS", "wim"))
+	v, err := c.HVals("wim").Result()
 	ok(t, err)
 	equals(t, 4, len(v))
 	sort.Strings(v)
@@ -316,13 +326,13 @@ func TestHashValues(t *testing.T) {
 		"vuur",
 	}, v)
 
-	v, err = redis.Strings(c.Do("HVALS", "nosuch"))
+	v, err = c.HVals("nosuch").Result()
 	ok(t, err)
 	equals(t, 0, len(v))
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HVALS", "foo"))
+	err = c.HVals("foo").Err()
 	assert(t, err != nil, "no HVALS error")
 }
 
@@ -330,24 +340,26 @@ func TestHashLen(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.HSet("wim", "zus", "jet")
 	s.HSet("wim", "teun", "vuur")
 	s.HSet("wim", "gijs", "lam")
 	s.HSet("wim", "kees", "bok")
-	v, err := redis.Int(c.Do("HLEN", "wim"))
+	v, err := c.HLen("wim").Result()
 	ok(t, err)
 	equals(t, 4, v)
 
-	v, err = redis.Int(c.Do("HLEN", "nosuch"))
+	v, err = c.HLen("nosuch").Result()
 	ok(t, err)
 	equals(t, 0, v)
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HLEN", "foo"))
+	err = c.HLen("foo").Err()
 	assert(t, err != nil, "no HLEN error")
 }
 
@@ -355,21 +367,23 @@ func TestHashMget(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	s.HSet("wim", "zus", "jet")
 	s.HSet("wim", "teun", "vuur")
 	s.HSet("wim", "gijs", "lam")
 	s.HSet("wim", "kees", "bok")
-	v, err := redis.Values(c.Do("HMGET", "wim", "zus", "nosuch", "kees"))
+	v, err := c.HMGet("wim", "zus", "nosuch", "kees").Result()
 	ok(t, err)
 	equals(t, 3, len(v))
-	equals(t, "jet", string(v[0].([]byte)))
+	equals(t, "jet", v[0].(string))
 	equals(t, nil, v[1])
-	equals(t, "bok", string(v[2].([]byte)))
+	equals(t, "bok", v[2].(string))
 
-	v, err = redis.Values(c.Do("HMGET", "nosuch", "zus", "kees"))
+	v, err = c.HMGet("nosuch", "zus", "kees").Result()
 	ok(t, err)
 	equals(t, 2, len(v))
 	equals(t, nil, v[0])
@@ -377,7 +391,7 @@ func TestHashMget(t *testing.T) {
 
 	// Wrong key type
 	s.Set("foo", "bar")
-	_, err = redis.Int(c.Do("HMGET", "foo", "bar"))
+	err = c.HMGet("foo", "boo").Err()
 	assert(t, err != nil, "no HMGET error")
 }
 
@@ -385,26 +399,30 @@ func TestHashIncrby(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+
+	var v int64
 
 	// New key
 	{
-		v, err := redis.Int(c.Do("HINCRBY", "hash", "field", 1))
+		v, err = c.HIncrBy("hash", "field", 1).Result()
 		ok(t, err)
 		equals(t, 1, v)
 	}
 
 	// Existing key
 	{
-		v, err := redis.Int(c.Do("HINCRBY", "hash", "field", 100))
+		v, err = c.HIncrBy("hash", "field", 100).Result()
 		ok(t, err)
 		equals(t, 101, v)
 	}
 
 	// Minus works.
 	{
-		v, err := redis.Int(c.Do("HINCRBY", "hash", "field", -12))
+		v, err = c.HIncrBy("hash", "field", -12).Result()
 		ok(t, err)
 		equals(t, 101-12, v)
 	}
@@ -417,13 +435,7 @@ func TestHashIncrby(t *testing.T) {
 	{
 		// Wrong key type
 		s.Set("str", "cake")
-		_, err = redis.Values(c.Do("HINCRBY", "str", "case", 4))
-		assert(t, err != nil, "no HINCRBY error")
-
-		_, err = redis.Values(c.Do("HINCRBY", "str", "case", "foo"))
-		assert(t, err != nil, "no HINCRBY error")
-
-		_, err = redis.Values(c.Do("HINCRBY", "str"))
+		err = c.HIncrBy("str", "case", 4).Err()
 		assert(t, err != nil, "no HINCRBY error")
 	}
 }
@@ -432,13 +444,17 @@ func TestHashIncrbyfloat(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+
+	var v float64
 
 	// Existing key
 	{
 		s.HSet("hash", "field", "12")
-		v, err := redis.Float64(c.Do("HINCRBYFLOAT", "hash", "field", "400.12"))
+		v, err = c.HIncrByFloat("hash", "field", 400.12).Result()
 		ok(t, err)
 		equals(t, 412.12, v)
 		equals(t, "412.12", s.HGet("hash", "field"))
@@ -447,13 +463,13 @@ func TestHashIncrbyfloat(t *testing.T) {
 	// Existing key, not a number
 	{
 		s.HSet("hash", "field", "noint")
-		_, err := redis.Float64(c.Do("HINCRBYFLOAT", "hash", "field", "400"))
+		v, err = c.HIncrByFloat("hash", "field", 400).Result()
 		assert(t, err != nil, "do HINCRBYFLOAT error")
 	}
 
 	// New key
 	{
-		v, err := redis.Float64(c.Do("HINCRBYFLOAT", "hash", "newfield", "40.33"))
+		v, err = c.HIncrByFloat("hash", "newfield", 40.33).Result()
 		ok(t, err)
 		equals(t, 40.33, v)
 		equals(t, "40.33", s.HGet("hash", "newfield"))
@@ -471,21 +487,7 @@ func TestHashIncrbyfloat(t *testing.T) {
 	// Wrong type of existing key
 	{
 		s.Set("wrong", "type")
-		_, err := redis.Int(c.Do("HINCRBYFLOAT", "wrong", "type", "400"))
-		assert(t, err != nil, "do HINCRBYFLOAT error")
-	}
-
-	// Wrong usage
-	{
-		_, err := redis.Int(c.Do("HINCRBYFLOAT"))
-		assert(t, err != nil, "do HINCRBYFLOAT error")
-		_, err = redis.Int(c.Do("HINCRBYFLOAT", "wrong"))
-		assert(t, err != nil, "do HINCRBYFLOAT error")
-		_, err = redis.Int(c.Do("HINCRBYFLOAT", "wrong", "value"))
-		assert(t, err != nil, "do HINCRBYFLOAT error")
-		_, err = redis.Int(c.Do("HINCRBYFLOAT", "wrong", "value", "noint"))
-		assert(t, err != nil, "do HINCRBYFLOAT error")
-		_, err = redis.Int(c.Do("HINCRBYFLOAT", "foo", "bar", 12, "tomanye"))
+		err = c.HIncrByFloat("wrong", "type", 400).Err()
 		assert(t, err != nil, "do HINCRBYFLOAT error")
 	}
 }
@@ -494,54 +496,41 @@ func TestHscan(t *testing.T) {
 	s, err := Run()
 	ok(t, err)
 	defer s.Close()
-	c, err := redis.Dial("tcp", s.Addr())
-	ok(t, err)
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
 
 	// We cheat with hscan. It always returns everything.
 
 	s.HSet("h", "field1", "value1")
 	s.HSet("h", "field2", "value2")
 
+	var res []string
+	var cur uint64
+
 	// No problem
 	{
-		res, err := redis.Values(c.Do("HSCAN", "h", 0))
+		res, cur, err = c.HScan("h", 0, "", 0).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
-		equals(t, []string{"field1", "value1", "field2", "value2"}, keys)
+		equals(t, 0, cur)
+		equals(t, []string{"field1", "value1", "field2", "value2"}, res)
 	}
 
 	// Invalid cursor
 	{
-		res, err := redis.Values(c.Do("HSCAN", "h", 42))
+		res, cur, err = c.HScan("h", 42, "", 0).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
-		equals(t, []string(nil), keys)
+		equals(t, 0, cur)
+		equals(t, []string{}, res)
 	}
 
 	// COUNT (ignored)
 	{
-		res, err := redis.Values(c.Do("HSCAN", "h", 0, "COUNT", 200))
+		res, cur, err = c.HScan("h", 0, "", 200).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
-		equals(t, []string{"field1", "value1", "field2", "value2"}, keys)
+		equals(t, 0, cur)
+		equals(t, []string{"field1", "value1", "field2", "value2"}, res)
 	}
 
 	// MATCH
@@ -549,34 +538,9 @@ func TestHscan(t *testing.T) {
 		s.HSet("h", "aap", "a")
 		s.HSet("h", "noot", "b")
 		s.HSet("h", "mies", "m")
-		res, err := redis.Values(c.Do("HSCAN", "h", 0, "MATCH", "mi*"))
+		res, cur, err = c.HScan("h", 0, "mi*", 0).Result()
 		ok(t, err)
-		equals(t, 2, len(res))
-
-		var c int
-		var keys []string
-		_, err = redis.Scan(res, &c, &keys)
-		ok(t, err)
-		equals(t, 0, c)
-		equals(t, []string{"mies", "m"}, keys)
-	}
-
-	// Wrong usage
-	{
-		_, err := redis.Int(c.Do("HSCAN"))
-		assert(t, err != nil, "do HSCAN error")
-		_, err = redis.Int(c.Do("HSCAN", "set"))
-		assert(t, err != nil, "do HSCAN error")
-		_, err = redis.Int(c.Do("HSCAN", "set", "noint"))
-		assert(t, err != nil, "do HSCAN error")
-		_, err = redis.Int(c.Do("HSCAN", "set", 1, "MATCH"))
-		assert(t, err != nil, "do HSCAN error")
-		_, err = redis.Int(c.Do("HSCAN", "set", 1, "COUNT"))
-		assert(t, err != nil, "do HSCAN error")
-		_, err = redis.Int(c.Do("HSCAN", "set", 1, "COUNT", "noint"))
-		assert(t, err != nil, "do HSCAN error")
-		s.Set("str", "value")
-		_, err = redis.Int(c.Do("HSCAN", "str", 1))
-		assert(t, err != nil, "do HSCAN error")
+		equals(t, 0, cur)
+		equals(t, []string{"mies", "m"}, res)
 	}
 }

@@ -1,6 +1,6 @@
 # Miniredis
 
-Pure Go Redis test server, used in Go unittests.
+Pure Go Redis test server, used in Go unittests.  This is a fork of the dlsteuer/miniredis project, converting to use the type safe go-redis library instead of gomodule/redigo
 
 
 ##
@@ -303,9 +303,9 @@ Commands which will probably not be implemented:
 
 ## &c.
 
-See https://github.com/alicebob/miniredis_vs_redis for tests comparing
+See https://github.com/dlsteuer/miniredis_vs_redis for tests comparing
 miniredis against the real thing. Tests are run against Redis 4.0.6 (Debian).
 
 
-[![Build Status](https://travis-ci.org/alicebob/miniredis.svg?branch=master)](https://travis-ci.org/alicebob/miniredis) 
-[![GoDoc](https://godoc.org/github.com/alicebob/miniredis?status.svg)](https://godoc.org/github.com/alicebob/miniredis)
+[![Build Status](https://travis-ci.org/dlsteuer/miniredis.svg?branch=master)](https://travis-ci.org/dlsteuer/miniredis) 
+[![GoDoc](https://godoc.org/github.com/dlsteuer/miniredis?status.svg)](https://godoc.org/github.com/dlsteuer/miniredis)

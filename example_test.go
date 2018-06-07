@@ -3,8 +3,8 @@ package miniredis_test
 import (
 	"time"
 
-	"github.com/alicebob/miniredis"
-	"github.com/gomodule/redigo/redis"
+	"github.com/dlsteuer/miniredis"
+	"github.com/go-redis/redis"
 )
 
 func Example() {
@@ -17,11 +17,11 @@ func Example() {
 	// Configure you application to connect to redis at s.Addr()
 	// Any redis client should work, as long as you use redis commands which
 	// miniredis implements.
-	c, err := redis.Dial("tcp", s.Addr())
-	if err != nil {
-		panic(err)
-	}
-	if _, err = c.Do("SET", "foo", "bar"); err != nil {
+	c := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    s.Addr(),
+	})
+	if _, err = c.Set("foo", "bar", 0).Result(); err != nil {
 		panic(err)
 	}
 
