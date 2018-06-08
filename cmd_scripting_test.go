@@ -36,6 +36,11 @@ func TestEval(t *testing.T) {
 		equals(t, []interface{}{"key1"}, b)
 	}
 
+	{
+		err = c.Eval("keys = 0; return 42", []string{}).Err()
+		assert(t, err != nil, "able to create global value: %v", err)
+	}
+
 	// Invalid args
 	err = c.Eval("42", []string{}).Err()
 	assert(t, err != nil, "no EVAL error")
